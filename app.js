@@ -172,7 +172,7 @@ function mapView(){
  return `<main class="insta-app">
    <header class="insta-top">
      <div class="brand-lockup"><div class="brand-mini">JAPAN</div><div class="brand-title">MEMORY MAP</div></div>
-     <div class="top-actions"><button class="circle-action" onclick="showAbout()" aria-label="使い方">?</button></div>
+     <div class="top-actions"><button class="share-action" onclick="openShareSheet()" aria-label="ストーリー用の画像を作る">↗ シェア</button><button class="circle-action" onclick="showAbout()" aria-label="使い方">?</button></div>
    </header>
 
    <section class="hero-copy">
@@ -325,9 +325,10 @@ function openExtraPhotos(pref){
 
 function interactiveMapSvg(){
   let svg=EMBEDDED_SVG;
+  const v=visited();
   svg=svg.replace(/<g([^>]*data-code="(\d+)"[^>]*)>/g,(m,attrs,rawId)=>{
     const id=String(rawId).padStart(2,"0");
-    let a=attrs.replace(/class="([^"]*)"/,(_,c)=>`class="${c} prefecture-hit"`);
+    let a=attrs.replace(/class="([^"]*)"/,(_,c)=>`class="${c} prefecture-hit${v.has(id)?" visited":""}"`);
     return `<g${a} role="button" tabindex="0" aria-label="${NAMES[id]}" onclick="selectPref('${id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectPref('${id}')}">`;
   });
   svg=svg.replace(/fill="#EEEEEE"/gi,'fill="transparent"');
@@ -335,7 +336,7 @@ function interactiveMapSvg(){
   return svg;
 }
 
-function buildPhotoLayers(){
+function mapPhotoSources(){
  const byPref={};
  for(const m of state.memories){
    if(m.maskedPhoto) (byPref[m.prefectureId] ||= []).push(m);
@@ -343,8 +344,11 @@ function buildPhotoLayers(){
  return Object.entries(byPref).map(([pref, memories])=>{
    const selectedId=state.mapSelection?.[pref];
    const selected=memories.find(m=>m.id===selectedId) || memories[0];
-   return selected ? `<img class="photo-layer-map" src="${selected.maskedPhoto}" alt="" aria-hidden="true">` : "";
- }).join("");
+   return selected?.maskedPhoto;
+ }).filter(Boolean);
+}
+function buildPhotoLayers(){
+ return mapPhotoSources().map(src=>`<img class="photo-layer-map" src="${src}" alt="" aria-hidden="true">`).join("");
 }
 
 function selectPref(id){state.selectedPref=String(id).padStart(2,'0');render()}
@@ -693,6 +697,123 @@ async function deleteMemory(id){
    state.memories=prev;
    alert("写真の削除を保存できませんでした。もう一度お試しください。");
  }
+}
+// ===== ストーリー用シェア画像 =====
+const SHARE_KEY="jmm_share_v1";
+const DEFAULT_THEME="あなたの思い出で、\n日本を彩る。";
+const SHARE_BG={beige:{label:"ベージュ"},pastel:{label:"パステル"}};
+let shareOpts=(()=>{try{return {theme:DEFAULT_THEME,bg:"beige",...JSON.parse(localStorage.getItem(SHARE_KEY)||"{}")}}catch{return {theme:DEFAULT_THEME,bg:"beige"}}})();
+let shareTimer=null, shareBlob=null;
+function openShareSheet(){
+ const el=document.createElement("div");el.className="modal-backdrop";el.onclick=e=>{if(e.target===el)el.remove()};
+ el.innerHTML=`<section class="sheet share-sheet"><div class="sheet-head"><div><div class="kicker">SHARE TO STORY</div><h2>ストーリー用の画像</h2></div><button class="close" onclick="this.closest('.modal-backdrop').remove()">×</button></div>
+  <div class="field"><label>テーマ（好きな言葉に変えられます）</label><textarea id="shareTheme" rows="2" maxlength="40" oninput="updateShareOpts()">${esc(shareOpts.theme)}</textarea></div>
+  <div class="share-bg-row">${Object.entries(SHARE_BG).map(([k,v])=>`<button type="button" class="share-bg-chip ${k} ${shareOpts.bg===k?"active":""}" onclick="updateShareOpts('${k}')">${v.label}</button>`).join("")}<button type="button" class="share-bg-chip reset" onclick="document.getElementById('shareTheme').value=DEFAULT_THEME;updateShareOpts()">元に戻す</button></div>
+  <div class="share-preview"><img id="sharePreview" alt="シェア画像のプレビュー"><div id="shareLoading" class="preview-loading">作成中…</div></div>
+  <div class="cta-row"><button id="shareSaveBtn" class="primary" onclick="saveShareImage()" disabled>画像を保存・シェア</button></div>
+  <p class="small share-hint">保存した画像をインスタのストーリーに載せてください。</p></section>`;
+ document.body.appendChild(el);
+ refreshSharePreview();
+}
+function updateShareOpts(bg){
+ if(bg){shareOpts.bg=bg;document.querySelectorAll(".share-bg-chip").forEach(b=>b.classList.toggle("active",b.classList.contains(bg)))}
+ const t=document.getElementById("shareTheme"); if(t) shareOpts.theme=t.value;
+ try{localStorage.setItem(SHARE_KEY,JSON.stringify(shareOpts))}catch{}
+ clearTimeout(shareTimer); shareTimer=setTimeout(refreshSharePreview,250);
+}
+async function refreshSharePreview(){
+ const btn=document.getElementById("shareSaveBtn"), img=document.getElementById("sharePreview"), loading=document.getElementById("shareLoading");
+ if(btn) btn.disabled=true; if(loading) loading.style.display="";
+ try{
+   const canvas=await drawShareImage(shareOpts);
+   shareBlob=await new Promise(r=>canvas.toBlob(r,"image/png"));
+   if(img){ if(img.dataset.url) URL.revokeObjectURL(img.dataset.url); img.dataset.url=URL.createObjectURL(shareBlob); img.src=img.dataset.url; }
+   if(btn) btn.disabled=false;
+ }catch(err){console.error("SHARE_IMAGE_FAIL",err);showToast("画像を作れませんでした");}
+ if(loading) loading.style.display="none";
+}
+async function saveShareImage(){
+ if(!shareBlob) return;
+ const file=new File([shareBlob],"japan-memory-map.png",{type:"image/png"});
+ if(navigator.canShare?.({files:[file]})){
+   try{ await navigator.share({files:[file]}); return; }catch(err){ if(err?.name==="AbortError") return; }
+ }
+ const a=document.createElement("a"); a.href=URL.createObjectURL(shareBlob); a.download="japan-memory-map.png"; document.body.appendChild(a); a.click(); a.remove();
+ setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+ showToast("画像を保存しました");
+}
+function shareMapSvgUrl(){
+ const v=visited();
+ let svg=EMBEDDED_SVG.replace("<svg ",'<svg width="1000" height="1000" ');
+ svg=svg.replace(/<g([^>]*data-code="(\d+)"[^>]*)>/g,(m,attrs,rawId)=>{
+   const id=String(rawId).padStart(2,"0");
+   return `<g${attrs} fill="${v.has(id)?"transparent":"#ece5da"}">`;
+ });
+ svg=svg.replace(/fill="#(EEEEEE|F[0-9A-F]{5})"/gi,'').replace(/stroke="#000000"/g,'stroke="#fffdf9"').replace(/stroke-width="1\.0"/g,'stroke-width="1.6"');
+ svg=svg.replace(/<line /g,'<line stroke="#ddd3c4" stroke-width="2" stroke-dasharray="4 8" stroke-linecap="round" ');
+ return "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+}
+function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath()}
+function wrapTheme(ctx,text,maxW){
+ const out=[];
+ for(const para of String(text||"").split("\n")){
+   let line="";
+   for(const ch of para){ if(ctx.measureText(line+ch).width>maxW && line){out.push(line);line=ch}else line+=ch; }
+   out.push(line);
+ }
+ return out.filter((l,i,a)=>l||a.length===1);
+}
+async function drawShareImage(opts){
+ const W=1080,H=1920, c=document.createElement("canvas"); c.width=W; c.height=H; const ctx=c.getContext("2d");
+ const SERIF='"Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP",serif', SANS='"Hiragino Sans","Yu Gothic","Noto Sans JP",sans-serif';
+ const v=visited(), count=v.size, pct=Math.round(count/47*100);
+ // 背景
+ ctx.fillStyle="#f3ede3"; ctx.fillRect(0,0,W,H);
+ if(opts.bg==="pastel"){
+   ctx.fillStyle="#fbf3ee"; ctx.fillRect(0,0,W,H);
+   [[100,190,760,"#ffd1dc"],[1020,560,820,"#ffe2c4"],[320,1820,900,"#d9d3ff"],[1030,1820,720,"#c9f0e6"]].forEach(([x,y,r,col])=>{
+     const g=ctx.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,col); g.addColorStop(1,col+"00"); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+   });
+ }
+ // ブランド
+ ctx.fillStyle="#9b8f82"; ctx.textAlign="center"; ctx.textBaseline="alphabetic";
+ ctx.font=`500 26px Georgia,serif`; ctx.letterSpacing="10px"; ctx.fillText("JAPAN MEMORY MAP",W/2+5,250); ctx.letterSpacing="0px";
+ // テーマ（文字数に合わせて大きさを調整）
+ const theme=(opts.theme||"").trim()||DEFAULT_THEME;
+ let size=86, lines;
+ for(;size>=44;size-=4){ ctx.font=`500 ${size}px ${SERIF}`; lines=wrapTheme(ctx,theme,900); if(lines.length*size*1.35<=250) break; }
+ ctx.fillStyle="#2b2622";
+ const lh=size*1.35, top=300+(250-lines.length*lh)/2;
+ lines.forEach((l,i)=>ctx.fillText(l,W/2,top+lh*(i+0.8)));
+ // 地図カード
+ const cx=70,cy=580,cs=940;
+ ctx.save(); ctx.shadowColor="rgba(120,90,70,.18)"; ctx.shadowBlur=70; ctx.shadowOffsetY=26; ctx.fillStyle="#fffdf9"; roundRect(ctx,cx,cy,cs,cs,52); ctx.fill(); ctx.restore();
+ const mx=cx+20,my=cy+20,ms=cs-40;
+ for(const src of mapPhotoSources()){ try{ ctx.save(); ctx.shadowColor="rgba(80,50,30,.22)"; ctx.shadowBlur=8; ctx.shadowOffsetY=3; ctx.drawImage(await loadImage(src),mx,my,ms,ms); ctx.restore(); }catch{} }
+ try{ ctx.drawImage(await loadImage(shareMapSvgUrl()),mx,my,ms,ms); }catch(err){ console.warn("SHARE_SVG_FAIL",err); }
+ // ステッカー
+ ctx.save(); ctx.translate(cx+200,cy+150); ctx.rotate(-6*Math.PI/180);
+ const sticker=count===0?"旅のはじまり":count===47?"日本 制覇！":`${count}県 制覇中！`;
+ ctx.font=`800 36px ${SANS}`; const sw=ctx.measureText(sticker).width+56;
+ ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=20; ctx.shadowOffsetY=8; ctx.fillStyle="#ffe066"; roundRect(ctx,-sw/2,-38,sw,76,20); ctx.fill();
+ ctx.shadowColor="transparent"; ctx.fillStyle="#2b2622"; ctx.textBaseline="middle"; ctx.fillText(sticker,0,2); ctx.restore();
+ // 数字
+ const stats=[[`${count}`,"/47","行った県"],[`${state.memories.length}`,"","思い出の写真"],[`${pct}`,"%","日本制覇率"]];
+ const bw=(cs-36)/3;
+ stats.forEach(([n,unit,label],i)=>{
+   const x=cx+i*(bw+18), y=1550;
+   ctx.save(); ctx.shadowColor="rgba(120,90,70,.08)"; ctx.shadowBlur=30; ctx.shadowOffsetY=10; ctx.fillStyle="rgba(255,253,249,.88)"; roundRect(ctx,x,y,bw,150,34); ctx.fill(); ctx.restore();
+   ctx.textBaseline="alphabetic"; ctx.textAlign="left";
+   ctx.font=`500 66px Georgia,serif`; const nw=ctx.measureText(n).width; ctx.font=`500 28px Georgia,serif`; const uw=ctx.measureText(unit).width;
+   let sx=x+bw/2-(nw+uw+4)/2;
+   ctx.fillStyle="#2b2622"; ctx.font=`500 66px Georgia,serif`; ctx.fillText(n,sx,y+82);
+   ctx.fillStyle="#9a8d80"; ctx.font=`500 28px Georgia,serif`; ctx.fillText(unit,sx+nw+4,y+82);
+   ctx.textAlign="center"; ctx.fillStyle="#6f645b"; ctx.font=`700 25px ${SANS}`; ctx.fillText(label,x+bw/2,y+124);
+ });
+ ctx.textAlign="center"; ctx.fillStyle="#8b7f74"; ctx.font=`700 25px ${SANS}`;
+ ctx.fillText("あなたも地図を埋めてみて",W/2,1770);
+ ctx.fillStyle="#2b2622"; ctx.font=`500 24px Georgia,serif`; ctx.fillText("oka600-arch.github.io/japan-memory-map",W/2,1812);
+ return c;
 }
 function logout(){localStorage.removeItem(USER);state.user=null;render()}
 function showAbout(){
