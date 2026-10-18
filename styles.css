@@ -388,3 +388,26 @@ button,input,select,textarea{font-family:inherit}
 .celebrate h2{font-size:22px;margin:0 0 6px}.celebrate p{margin:0 0 4px;color:var(--muted);font-size:13px}
 .celebrate .cta-row{margin-top:20px;gap:8px}
 @keyframes celebrate-pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+
+/* ルーレット・3大観光地 */
+.roulette-open{display:block;width:100%;margin-top:14px;padding:14px;border:0;border-radius:999px;background:linear-gradient(90deg,#e9b872,#e8706b);color:#fff;font-size:14px;font-weight:700;letter-spacing:.04em;cursor:pointer;box-shadow:0 8px 20px rgba(232,112,107,.28)}
+.roulette-backdrop{align-items:center!important}
+.roulette{width:min(380px,92%);max-height:90vh;overflow:auto;background:var(--paper,#fffdf9);border-radius:28px;padding:26px 22px 20px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.roulette h2{font-size:22px;margin:6px 0 16px}
+.roulette-window{height:96px;border-radius:22px;background:#2b2622;display:grid;place-items:center;overflow:hidden;box-shadow:inset 0 0 0 4px #ffe066}
+.roulette-name{font-family:Georgia,"Hiragino Mincho ProN","Yu Mincho",serif;font-size:32px;color:#fff}
+.roulette-name.tick{animation:roulette-tick .12s ease-out}
+.roulette-name.landed{color:#ffe066;font-size:38px;animation:celebrate-pop .45s cubic-bezier(.2,1.4,.4,1)}
+@keyframes roulette-tick{from{transform:translateY(-40%);opacity:.3}to{transform:none;opacity:1}}
+.roulette .cta-row{margin-top:16px;gap:8px}
+.roulette-note{margin-top:10px;color:var(--muted)}
+.spots{margin:16px 0 4px;padding:16px 16px 10px;border-radius:20px;background:#f6f1ea;text-align:left}
+.spots-head span{display:block;font-size:9px;letter-spacing:.25em;color:#9a9289}
+.spots-head strong{display:block;font-size:16px;margin-top:4px}
+.spots ol{list-style:none;margin:10px 0 0;padding:0}
+.spots li{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid #ebe3d8;font-size:14px}
+.spots li:first-child{border-top:0}
+.spots li b{width:26px;height:26px;flex:none;border-radius:50%;display:grid;place-items:center;font-family:Georgia,serif;font-size:13px;color:#fff;background:#c9a46b}
+.spots li:nth-child(1) b{background:linear-gradient(135deg,#f3cf73,#d39a2c)}
+.spots li:nth-child(2) b{background:linear-gradient(135deg,#d9d9d9,#a5a5a5)}
+.spots li:nth-child(3) b{background:linear-gradient(135deg,#e4b48a,#b47a48)}

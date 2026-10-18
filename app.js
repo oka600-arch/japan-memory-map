@@ -369,6 +369,7 @@ function openPrefSheet(id){
      </div>
    </div>
    <div class="cta-row pref-sheet-actions"><button class="primary" onclick="addForPref('${pid}')">＋ ${NAMES[pid]}の思い出を追加</button></div>
+   ${spotsHtml(pid)}
    ${ms.length?`<div class="section-head pref-section-head"><h2>思い出</h2><span>${ms.length}件</span></div><div class="memory-grid pref-memory-grid">${ms.map(memoryCard).join("")}</div>`:`<div class="empty pref-empty"><p>この県の最初の思い出を登録しましょう。</p></div>`}`;
  const el=document.createElement("div");
  el.className="modal-backdrop pref-modal";
@@ -720,6 +721,7 @@ function rankSection(){
    ${r.next?`<div class="rank-bar"><i style="width:${Math.round(r.next.progress*100)}%"></i></div><p class="rank-next">あと<b>${r.next.need}</b>県で「${r.next.name}」</p>`:`<p class="rank-next">47都道府県をすべて彩りました！</p>`}
    <div class="badge-grid">${regions.map(x=>`<div class="region-badge ${x.complete?"complete":""} ${x.key}"><span class="badge-medal">${x.complete?"★":`${x.done}/${x.total}`}</span><small>${x.name}</small></div>`).join("")}</div>
    <p class="rank-hint">地方の県をぜんぶ埋めると、その地方の制覇バッジがもらえます。</p>
+   <button class="roulette-open" onclick="openRoulette()">🎲 次の旅ルーレットを回す</button>
  </section>`;
 }
 function celebrateProgress(before){
@@ -733,6 +735,43 @@ function celebrateProgress(before){
   <div class="cta-row" style="justify-content:center"><button class="primary" onclick="this.closest('.modal-backdrop').remove();openShareSheet()">ストーリーで自慢する</button><button class="secondary" onclick="this.closest('.modal-backdrop').remove()">閉じる</button></div></section>`;
  document.body.appendChild(el);
  return true;
+}
+
+// ===== 次の旅ルーレット・県の3大観光地 =====
+const TOP_SPOTS={"01":["函館山の夜景","小樽運河","富良野・美瑛"],"02":["奥入瀬渓流","十和田湖","弘前城"],"03":["中尊寺","浄土ヶ浜","龍泉洞"],"04":["松島","仙台城跡","秋保温泉"],"05":["角館の武家屋敷","田沢湖","乳頭温泉郷"],"06":["山寺（立石寺）","銀山温泉","蔵王"],"07":["鶴ヶ城","大内宿","猪苗代湖"],"08":["国営ひたち海浜公園","袋田の滝","偕楽園"],"09":["日光東照宮","華厳の滝","鬼怒川温泉"],"10":["草津温泉","伊香保温泉","富岡製糸場"],"11":["川越の蔵造りの町並み","長瀞","秩父"],"12":["東京ディズニーリゾート","成田山新勝寺","鋸山"],"13":["浅草・浅草寺","東京スカイツリー","渋谷スクランブル交差点"],"14":["鎌倉","箱根","横浜中華街"],"15":["佐渡島","苗場","月岡温泉"],"16":["立山黒部アルペンルート","五箇山合掌造り集落","雨晴海岸"],"17":["兼六園","ひがし茶屋街","能登半島"],"18":["東尋坊","永平寺","恐竜博物館"],"19":["富士五湖","昇仙峡","忍野八海"],"20":["上高地","善光寺","軽井沢"],"21":["白川郷","飛騨高山の古い町並み","下呂温泉"],"22":["富士山","伊豆半島","熱海温泉"],"23":["名古屋城","熱田神宮","レゴランド・ジャパン"],"24":["伊勢神宮","鳥羽水族館","ナガシマリゾート"],"25":["琵琶湖","彦根城","比叡山延暦寺"],"26":["清水寺","伏見稲荷大社","嵐山"],"27":["ユニバーサル・スタジオ・ジャパン","大阪城","道頓堀"],"28":["姫路城","神戸・北野異人館","有馬温泉"],"29":["奈良公園","東大寺","法隆寺"],"30":["高野山","熊野古道","白浜"],"31":["鳥取砂丘","大山","水木しげるロード"],"32":["出雲大社","松江城","石見銀山"],"33":["倉敷美観地区","後楽園","岡山城"],"34":["厳島神社（宮島）","原爆ドーム","尾道"],"35":["秋吉台・秋芳洞","錦帯橋","角島大橋"],"36":["鳴門の渦潮","祖谷のかずら橋","大歩危・小歩危"],"37":["金刀比羅宮","小豆島","栗林公園"],"38":["道後温泉","松山城","しまなみ海道"],"39":["桂浜","四万十川","高知城"],"40":["太宰府天満宮","中洲の屋台","門司港レトロ"],"41":["吉野ヶ里遺跡","嬉野温泉","有田"],"42":["ハウステンボス","グラバー園","軍艦島"],"43":["阿蘇山","熊本城","黒川温泉"],"44":["別府温泉","湯布院","臼杵石仏"],"45":["高千穂峡","青島","日南海岸"],"46":["屋久島","桜島","指宿温泉"],"47":["美ら海水族館","首里城","古宇利島"]};
+function spotsHtml(pid){
+ const spots=TOP_SPOTS[pid]||[];
+ if(!spots.length) return "";
+ return `<div class="spots"><div class="spots-head"><span>TOP 3 SPOTS</span><strong>${NAMES[pid]}の3大観光地</strong></div><ol>${spots.map((sp,i)=>`<li><b>${i+1}</b><span>${esc(sp)}</span></li>`).join("")}</ol></div>`;
+}
+let rouletteBusy=false;
+function openRoulette(){
+ const el=document.createElement("div");el.className="modal-backdrop roulette-backdrop";el.onclick=e=>{if(e.target===el&&!rouletteBusy)el.remove()};
+ el.innerHTML=`<section class="roulette"><div class="kicker">NEXT TRIP ROULETTE</div><h2>次の旅ルーレット</h2>
+  <div class="roulette-window"><div id="rouletteName" class="roulette-name">？</div></div>
+  <div id="rouletteResult"></div>
+  <div class="cta-row" style="justify-content:center"><button id="rouletteSpin" class="primary" onclick="spinRoulette()">ルーレットを回す</button><button class="secondary" onclick="if(!rouletteBusy)this.closest('.modal-backdrop').remove()">閉じる</button></div>
+  <p class="small roulette-note">まだ行っていない県から選びます。</p></section>`;
+ document.body.appendChild(el);
+}
+async function spinRoulette(){
+ if(rouletteBusy) return;
+ const v=visited(); let pool=Object.keys(NAMES).filter(id=>!v.has(id));
+ const note=document.querySelector(".roulette-note");
+ if(!pool.length){pool=Object.keys(NAMES); if(note) note.textContent="47都道府県制覇ずみ！2回目の旅先を選びます。";}
+ rouletteBusy=true;
+ const name=document.getElementById("rouletteName"), btn=document.getElementById("rouletteSpin"), result=document.getElementById("rouletteResult");
+ btn.disabled=true; result.innerHTML=""; name.classList.remove("landed");
+ const pick=pool[Math.floor(Math.random()*pool.length)];
+ const steps=22;
+ for(let i=0;i<steps;i++){
+   name.textContent=NAMES[i===steps-1?pick:pool[Math.floor(Math.random()*pool.length)]];
+   name.classList.remove("tick"); void name.offsetWidth; name.classList.add("tick");
+   await new Promise(r=>setTimeout(r,40+Math.pow(i/steps,3)*260));
+ }
+ name.classList.add("landed");
+ result.innerHTML=`${spotsHtml(pick)}<div class="cta-row" style="justify-content:center;margin-top:12px"><button class="secondary" onclick="this.closest('.modal-backdrop').remove();addForPref('${pick}')">＋ 行ったら写真を追加</button></div>`;
+ btn.disabled=false; btn.textContent="もう一回"; rouletteBusy=false;
 }
 
 // ===== ストーリー用シェア画像 =====
