@@ -210,6 +210,8 @@ function mapView(){
      <div><span>COLLECTION</span><strong>${pct}<small>%</small></strong></div>
    </section>
 
+   ${rankSection()}
+
    <section class="recent-section">
      <div class="section-title"><div><span>RECENT MEMORIES</span><h2>最近の思い出</h2></div><button onclick="setView('memories')">すべて見る</button></div>
      ${recent.length?`<div class="memory-strip">${recentMemoryGroups(recent).map(g=>g.items.length>1?`<button class="insta-memory recent-folder-card" onclick="openRecentFolder(${JSON.stringify(g.name).replace(/'/g,"&#39;")})">
@@ -578,6 +580,7 @@ async function createMemory(e){
    const created=currentPreviews.map((preview,i)=>({id:crypto.randomUUID(),...base,originalPhoto:storedOriginals[i],maskedPhoto:i===0?preview.masked:null,createdAt:new Date().toISOString(),batchId,albumKey:`pref-${pref}`,photoRole:i===0?'map':'album',batchIndex:i+1}));
    createdCount=created.length;
    const firstCreatedId=created[0].id;
+   const before=progressSnapshot();
    state.memories.unshift(...created.slice().reverse());
    state.mapSelection[pref]=firstCreatedId;
    persisted=await persistMemoriesSafely();
@@ -585,7 +588,7 @@ async function createMemory(e){
    try{ saveMapSelection(); }catch(mapErr){ console.warn("MAP_SELECTION_SAVE_FAIL",mapErr); }
    selectedFiles=[];currentPreviews=[];currentPreview=null;prefillPref="";
    try{ setView("map"); }catch(renderErr){ console.warn("MAP_RENDER_AFTER_SAVE_FAIL",renderErr); }
-   setTimeout(()=>showToast(`${createdCount}枚の写真を保存しました`),50);
+   setTimeout(()=>{ if(!celebrateProgress(before)) showToast(`${createdCount}枚の写真を保存しました`); },50);
  }catch(err){
    console.error("MEMORY_CREATE_FAIL",err);
    if(btn){btn.disabled=false;btn.textContent=btn.dataset.originalText||"県型写真を作って保存";}
@@ -698,6 +701,40 @@ async function deleteMemory(id){
    alert("写真の削除を保存できませんでした。もう一度お試しください。");
  }
 }
+// ===== 称号とバッジ =====
+const RANKS=[[0,"旅のはじまり"],[1,"旅の見習い"],[5,"旅人"],[12,"旅の達人"],[24,"旅の名人"],[36,"日本マスター候補"],[47,"日本マスター"]];
+const REGIONS=[["hokkaido","北海道",["01"]],["tohoku","東北",["02","03","04","05","06","07"]],["kanto","関東",["08","09","10","11","12","13","14"]],["chubu","中部",["15","16","17","18","19","20","21","22","23"]],["kinki","近畿",["24","25","26","27","28","29","30"]],["chugoku","中国",["31","32","33","34","35"]],["shikoku","四国",["36","37","38","39"]],["kyushu","九州・沖縄",["40","41","42","43","44","45","46","47"]]];
+function rankInfo(count=visited().size){
+ let i=0; while(i+1<RANKS.length && count>=RANKS[i+1][0]) i++;
+ const next=RANKS[i+1];
+ return {level:i, name:RANKS[i][1], next:next?{name:next[1],need:next[0]-count,progress:(count-RANKS[i][0])/(next[0]-RANKS[i][0])}:null};
+}
+function regionProgress(v=visited()){
+ return REGIONS.map(([key,name,ids])=>({key,name,total:ids.length,done:ids.filter(id=>v.has(id)).length,complete:ids.every(id=>v.has(id))}));
+}
+function progressSnapshot(){return {rank:rankInfo().level,badges:regionProgress().filter(r=>r.complete).map(r=>r.key)}}
+function rankSection(){
+ const r=rankInfo(), regions=regionProgress(), got=regions.filter(x=>x.complete).length;
+ return `<section class="rank-card">
+   <div class="rank-head"><div><span class="rank-kicker">TRAVEL RANK · Lv.${r.level}</span><strong class="rank-name">${r.name}</strong></div><div class="rank-badge-count"><b>${got}</b><small>/ ${REGIONS.length} バッジ</small></div></div>
+   ${r.next?`<div class="rank-bar"><i style="width:${Math.round(r.next.progress*100)}%"></i></div><p class="rank-next">あと<b>${r.next.need}</b>県で「${r.next.name}」</p>`:`<p class="rank-next">47都道府県をすべて彩りました！</p>`}
+   <div class="badge-grid">${regions.map(x=>`<div class="region-badge ${x.complete?"complete":""} ${x.key}"><span class="badge-medal">${x.complete?"★":`${x.done}/${x.total}`}</span><small>${x.name}</small></div>`).join("")}</div>
+   <p class="rank-hint">地方の県をぜんぶ埋めると、その地方の制覇バッジがもらえます。</p>
+ </section>`;
+}
+function celebrateProgress(before){
+ const after=progressSnapshot();
+ const items=[];
+ if(after.rank>before.rank) items.push({icon:"👑",title:"ランクアップ！",text:`称号「${RANKS[after.rank][1]}」になりました`});
+ after.badges.filter(k=>!before.badges.includes(k)).forEach(k=>{const reg=REGIONS.find(x=>x[0]===k);items.push({icon:"★",title:`${reg[1]}制覇！`,text:`${reg[1]}のバッジを手に入れました`})});
+ if(!items.length) return false;
+ const el=document.createElement("div");el.className="modal-backdrop celebrate-backdrop";el.onclick=e=>{if(e.target===el)el.remove()};
+ el.innerHTML=`<section class="celebrate">${items.map(it=>`<div class="celebrate-item"><div class="celebrate-icon">${it.icon}</div><h2>${it.title}</h2><p>${it.text}</p></div>`).join("")}
+  <div class="cta-row" style="justify-content:center"><button class="primary" onclick="this.closest('.modal-backdrop').remove();openShareSheet()">ストーリーで自慢する</button><button class="secondary" onclick="this.closest('.modal-backdrop').remove()">閉じる</button></div></section>`;
+ document.body.appendChild(el);
+ return true;
+}
+
 // ===== ストーリー用シェア画像 =====
 const SHARE_KEY="jmm_share_v1";
 const DEFAULT_THEME="あなたの思い出で、\n日本を彩る。";
@@ -793,10 +830,24 @@ async function drawShareImage(opts){
  try{ ctx.drawImage(await loadImage(shareMapSvgUrl()),mx,my,ms,ms); }catch(err){ console.warn("SHARE_SVG_FAIL",err); }
  // ステッカー
  ctx.save(); ctx.translate(cx+200,cy+150); ctx.rotate(-6*Math.PI/180);
- const sticker=count===0?"旅のはじまり":count===47?"日本 制覇！":`${count}県 制覇中！`;
+ const sticker=`👑 ${rankInfo(count).name}`;
  ctx.font=`800 36px ${SANS}`; const sw=ctx.measureText(sticker).width+56;
  ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=20; ctx.shadowOffsetY=8; ctx.fillStyle="#ffe066"; roundRect(ctx,-sw/2,-38,sw,76,20); ctx.fill();
  ctx.shadowColor="transparent"; ctx.fillStyle="#2b2622"; ctx.textBaseline="middle"; ctx.fillText(sticker,0,2); ctx.restore();
+ // 制覇バッジ（地図の右下の海の部分）
+ const badges=regionProgress(v).filter(r=>r.complete);
+ if(badges.length){
+   ctx.textAlign="right"; ctx.textBaseline="middle"; ctx.font=`700 24px ${SANS}`;
+   let by=cy+cs-60;
+   ctx.fillStyle="#9b8f82"; ctx.font=`600 20px Georgia,serif`; ctx.fillText(`BADGES ${badges.length}/${REGIONS.length}`,cx+cs-48,by-((badges.length-1)*58)-50);
+   ctx.font=`700 24px ${SANS}`;
+   badges.slice().reverse().forEach(b=>{
+     const label=`★ ${b.name}制覇`, w=ctx.measureText(label).width+36;
+     ctx.fillStyle="#2b2622"; roundRect(ctx,cx+cs-48-w,by-24,w,48,24); ctx.fill();
+     ctx.fillStyle="#ffe066"; ctx.fillText(label,cx+cs-48-18,by+1);
+     by-=58;
+   });
+ }
  // 数字
  const stats=[[`${count}`,"/47","行った県"],[`${state.memories.length}`,"","思い出の写真"],[`${pct}`,"%","日本制覇率"]];
  const bw=(cs-36)/3;
