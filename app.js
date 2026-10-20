@@ -871,12 +871,6 @@ async function drawShareImage(opts){
  const mx=cx+20,my=cy+20,ms=cs-40;
  for(const src of mapPhotoSources()){ try{ ctx.save(); ctx.shadowColor=P.photoShadow; ctx.shadowBlur=P.visitedBorder?18:8; ctx.shadowOffsetY=P.visitedBorder?0:3; ctx.drawImage(await loadImage(src),mx,my,ms,ms); ctx.restore(); }catch{} }
  try{ ctx.drawImage(await loadImage(shareMapSvgUrl(P)),mx,my,ms,ms); }catch(err){ console.warn("SHARE_SVG_FAIL",err); }
- // ステッカー
- ctx.save(); ctx.translate(cx+200,cy+150); ctx.rotate(-6*Math.PI/180);
- const sticker=`👑 ${rankInfo(count).name}`;
- ctx.font=`800 36px ${SANS}`; const sw=ctx.measureText(sticker).width+56;
- ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=20; ctx.shadowOffsetY=8; ctx.fillStyle=P.sticker; roundRect(ctx,-sw/2,-38,sw,76,20); ctx.fill();
- ctx.shadowColor="transparent"; ctx.fillStyle=P.stickerInk; ctx.textBaseline="middle"; ctx.fillText(sticker,0,2); ctx.restore();
  // 制覇バッジ（地図の右下の海の部分）
  const badges=regionProgress(v).filter(r=>r.complete);
  if(badges.length){
