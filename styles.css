@@ -411,3 +411,7 @@ button,input,select,textarea{font-family:inherit}
 .spots li:nth-child(1) b{background:linear-gradient(135deg,#f3cf73,#d39a2c)}
 .spots li:nth-child(2) b{background:linear-gradient(135deg,#d9d9d9,#a5a5a5)}
 .spots li:nth-child(3) b{background:linear-gradient(135deg,#e4b48a,#b47a48)}
+
+.share-bg-chip.night::before,.share-bg-chip.black::before{content:"";display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:7px;vertical-align:-1px}
+.share-bg-chip.night::before{background:linear-gradient(135deg,#2b3a8f,#0d1020 60%,#6ff3ff)}
+.share-bg-chip.black::before{background:linear-gradient(135deg,#0b0b0b 55%,#d6b25e)}

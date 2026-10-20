@@ -777,7 +777,13 @@ async function spinRoulette(){
 // ===== ストーリー用シェア画像 =====
 const SHARE_KEY="jmm_share_v1";
 const DEFAULT_THEME="あなたの思い出で、\n日本を彩る。";
-const SHARE_BG={beige:{label:"ベージュ"},pastel:{label:"パステル"}};
+const LIGHT_PAL={bg:"#f3ede3",ink:"#2b2622",muted:"#9b8f82",sub:"#6f645b",card:"#fffdf9",shadow:"rgba(120,90,70,.18)",unvisited:"#ece5da",border:"#fffdf9",line:"#ddd3c4",stat:"rgba(255,253,249,.88)",statShadow:"rgba(120,90,70,.08)",sticker:"#ffe066",stickerInk:"#2b2622",badge:"#2b2622",badgeInk:"#ffe066",photoShadow:"rgba(80,50,30,.22)"};
+const SHARE_BG={
+ beige:{label:"ベージュ",pal:LIGHT_PAL},
+ pastel:{label:"パステル",pal:{...LIGHT_PAL,bg:"#fbf3ee",glows:[[100,190,760,"#ffd1dc"],[1020,560,820,"#ffe2c4"],[320,1820,900,"#d9d3ff"],[1030,1820,720,"#c9f0e6"]]}},
+ night:{label:"ナイト",pal:{bg:"#0d1020",glows:[[980,420,900,"#2b3a8f88"],[80,1500,900,"#5b2a8a66"],[900,1900,700,"#0f6b7a55"]],ink:"#f1f3ff",muted:"#8d95c4",sub:"#aab1d8",card:"#151a33",shadow:"rgba(0,0,0,.55)",unvisited:"#252c52",border:"#151a33",line:"#3a4378",stat:"rgba(255,255,255,.06)",statShadow:"rgba(0,0,0,.3)",sticker:"#6ff3ff",stickerInk:"#0d1020",badge:"#6ff3ff",badgeInk:"#0d1020",visitedBorder:"rgba(255,255,255,.55)",photoShadow:"rgba(111,243,255,.55)"}},
+ black:{label:"ブラック",pal:{bg:"#0b0b0b",glows:[[540,960,1100,"#2a241866"]],ink:"#f3efe6",muted:"#8f8670",sub:"#b7ae98",card:"#161616",shadow:"rgba(0,0,0,.6)",unvisited:"#2a2a2a",border:"#161616",line:"#3d3a33",stat:"rgba(255,255,255,.05)",statShadow:"rgba(0,0,0,.35)",sticker:"#d6b25e",stickerInk:"#111111",badge:"#d6b25e",badgeInk:"#111111",visitedBorder:"rgba(255,240,210,.5)",photoShadow:"rgba(214,178,94,.5)"}}
+};
 let shareOpts=(()=>{try{return {theme:DEFAULT_THEME,bg:"beige",...JSON.parse(localStorage.getItem(SHARE_KEY)||"{}")}}catch{return {theme:DEFAULT_THEME,bg:"beige"}}})();
 let shareTimer=null, shareBlob=null;
 function openShareSheet(){
@@ -818,15 +824,15 @@ async function saveShareImage(){
  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
  showToast("画像を保存しました");
 }
-function shareMapSvgUrl(){
+function shareMapSvgUrl(P=LIGHT_PAL){
  const v=visited();
  let svg=EMBEDDED_SVG.replace("<svg ",'<svg width="1000" height="1000" ');
  svg=svg.replace(/<g([^>]*data-code="(\d+)"[^>]*)>/g,(m,attrs,rawId)=>{
    const id=String(rawId).padStart(2,"0");
-   return `<g${attrs} fill="${v.has(id)?"transparent":"#ece5da"}">`;
+   return `<g${attrs} fill="${v.has(id)?"transparent":P.unvisited}" stroke="${v.has(id)?(P.visitedBorder||P.border):P.border}">`;
  });
- svg=svg.replace(/fill="#(EEEEEE|F[0-9A-F]{5})"/gi,'').replace(/stroke="#000000"/g,'stroke="#fffdf9"').replace(/stroke-width="1\.0"/g,'stroke-width="1.6"');
- svg=svg.replace(/<line /g,'<line stroke="#ddd3c4" stroke-width="2" stroke-dasharray="4 8" stroke-linecap="round" ');
+ svg=svg.replace(/fill="#(EEEEEE|F[0-9A-F]{5})"/gi,'').replace(/stroke="#000000"/g,'').replace(/stroke-width="1\.0"/g,'stroke-width="1.6"');
+ svg=svg.replace(/<line /g,`<line stroke="${P.line}" stroke-width="2" stroke-dasharray="4 8" stroke-linecap="round" `);
  return "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
 }
 function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath()}
@@ -843,47 +849,45 @@ async function drawShareImage(opts){
  const W=1080,H=1920, c=document.createElement("canvas"); c.width=W; c.height=H; const ctx=c.getContext("2d");
  const SERIF='"Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP",serif', SANS='"Hiragino Sans","Yu Gothic","Noto Sans JP",sans-serif';
  const v=visited(), count=v.size, pct=Math.round(count/47*100);
+ const P=(SHARE_BG[opts.bg]||SHARE_BG.beige).pal;
  // 背景
- ctx.fillStyle="#f3ede3"; ctx.fillRect(0,0,W,H);
- if(opts.bg==="pastel"){
-   ctx.fillStyle="#fbf3ee"; ctx.fillRect(0,0,W,H);
-   [[100,190,760,"#ffd1dc"],[1020,560,820,"#ffe2c4"],[320,1820,900,"#d9d3ff"],[1030,1820,720,"#c9f0e6"]].forEach(([x,y,r,col])=>{
-     const g=ctx.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,col); g.addColorStop(1,col+"00"); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-   });
- }
+ ctx.fillStyle=P.bg; ctx.fillRect(0,0,W,H);
+ (P.glows||[]).forEach(([x,y,r,col])=>{
+   const g=ctx.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,col); g.addColorStop(1,col.slice(0,7)+"00"); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+ });
  // ブランド
- ctx.fillStyle="#9b8f82"; ctx.textAlign="center"; ctx.textBaseline="alphabetic";
+ ctx.fillStyle=P.muted; ctx.textAlign="center"; ctx.textBaseline="alphabetic";
  ctx.font=`500 26px Georgia,serif`; ctx.letterSpacing="10px"; ctx.fillText("JAPAN MEMORY MAP",W/2+5,250); ctx.letterSpacing="0px";
  // テーマ（文字数に合わせて大きさを調整）
  const theme=(opts.theme||"").trim()||DEFAULT_THEME;
  let size=86, lines;
  for(;size>=44;size-=4){ ctx.font=`500 ${size}px ${SERIF}`; lines=wrapTheme(ctx,theme,900); if(lines.length*size*1.35<=250) break; }
- ctx.fillStyle="#2b2622";
+ ctx.fillStyle=P.ink;
  const lh=size*1.35, top=300+(250-lines.length*lh)/2;
  lines.forEach((l,i)=>ctx.fillText(l,W/2,top+lh*(i+0.8)));
  // 地図カード
  const cx=70,cy=580,cs=940;
- ctx.save(); ctx.shadowColor="rgba(120,90,70,.18)"; ctx.shadowBlur=70; ctx.shadowOffsetY=26; ctx.fillStyle="#fffdf9"; roundRect(ctx,cx,cy,cs,cs,52); ctx.fill(); ctx.restore();
+ ctx.save(); ctx.shadowColor=P.shadow; ctx.shadowBlur=70; ctx.shadowOffsetY=26; ctx.fillStyle=P.card; roundRect(ctx,cx,cy,cs,cs,52); ctx.fill(); ctx.restore();
  const mx=cx+20,my=cy+20,ms=cs-40;
- for(const src of mapPhotoSources()){ try{ ctx.save(); ctx.shadowColor="rgba(80,50,30,.22)"; ctx.shadowBlur=8; ctx.shadowOffsetY=3; ctx.drawImage(await loadImage(src),mx,my,ms,ms); ctx.restore(); }catch{} }
- try{ ctx.drawImage(await loadImage(shareMapSvgUrl()),mx,my,ms,ms); }catch(err){ console.warn("SHARE_SVG_FAIL",err); }
+ for(const src of mapPhotoSources()){ try{ ctx.save(); ctx.shadowColor=P.photoShadow; ctx.shadowBlur=P.visitedBorder?18:8; ctx.shadowOffsetY=P.visitedBorder?0:3; ctx.drawImage(await loadImage(src),mx,my,ms,ms); ctx.restore(); }catch{} }
+ try{ ctx.drawImage(await loadImage(shareMapSvgUrl(P)),mx,my,ms,ms); }catch(err){ console.warn("SHARE_SVG_FAIL",err); }
  // ステッカー
  ctx.save(); ctx.translate(cx+200,cy+150); ctx.rotate(-6*Math.PI/180);
  const sticker=`👑 ${rankInfo(count).name}`;
  ctx.font=`800 36px ${SANS}`; const sw=ctx.measureText(sticker).width+56;
- ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=20; ctx.shadowOffsetY=8; ctx.fillStyle="#ffe066"; roundRect(ctx,-sw/2,-38,sw,76,20); ctx.fill();
- ctx.shadowColor="transparent"; ctx.fillStyle="#2b2622"; ctx.textBaseline="middle"; ctx.fillText(sticker,0,2); ctx.restore();
+ ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=20; ctx.shadowOffsetY=8; ctx.fillStyle=P.sticker; roundRect(ctx,-sw/2,-38,sw,76,20); ctx.fill();
+ ctx.shadowColor="transparent"; ctx.fillStyle=P.stickerInk; ctx.textBaseline="middle"; ctx.fillText(sticker,0,2); ctx.restore();
  // 制覇バッジ（地図の右下の海の部分）
  const badges=regionProgress(v).filter(r=>r.complete);
  if(badges.length){
    ctx.textAlign="right"; ctx.textBaseline="middle"; ctx.font=`700 24px ${SANS}`;
    let by=cy+cs-60;
-   ctx.fillStyle="#9b8f82"; ctx.font=`600 20px Georgia,serif`; ctx.fillText(`BADGES ${badges.length}/${REGIONS.length}`,cx+cs-48,by-((badges.length-1)*58)-50);
+   ctx.fillStyle=P.muted; ctx.font=`600 20px Georgia,serif`; ctx.fillText(`BADGES ${badges.length}/${REGIONS.length}`,cx+cs-48,by-((badges.length-1)*58)-50);
    ctx.font=`700 24px ${SANS}`;
    badges.slice().reverse().forEach(b=>{
      const label=`★ ${b.name}制覇`, w=ctx.measureText(label).width+36;
-     ctx.fillStyle="#2b2622"; roundRect(ctx,cx+cs-48-w,by-24,w,48,24); ctx.fill();
-     ctx.fillStyle="#ffe066"; ctx.fillText(label,cx+cs-48-18,by+1);
+     ctx.fillStyle=P.badge; roundRect(ctx,cx+cs-48-w,by-24,w,48,24); ctx.fill();
+     ctx.fillStyle=P.badgeInk; ctx.fillText(label,cx+cs-48-18,by+1);
      by-=58;
    });
  }
@@ -892,17 +896,17 @@ async function drawShareImage(opts){
  const bw=(cs-36)/3;
  stats.forEach(([n,unit,label],i)=>{
    const x=cx+i*(bw+18), y=1550;
-   ctx.save(); ctx.shadowColor="rgba(120,90,70,.08)"; ctx.shadowBlur=30; ctx.shadowOffsetY=10; ctx.fillStyle="rgba(255,253,249,.88)"; roundRect(ctx,x,y,bw,150,34); ctx.fill(); ctx.restore();
+   ctx.save(); ctx.shadowColor=P.statShadow; ctx.shadowBlur=30; ctx.shadowOffsetY=10; ctx.fillStyle=P.stat; roundRect(ctx,x,y,bw,150,34); ctx.fill(); ctx.restore();
    ctx.textBaseline="alphabetic"; ctx.textAlign="left";
    ctx.font=`500 66px Georgia,serif`; const nw=ctx.measureText(n).width; ctx.font=`500 28px Georgia,serif`; const uw=ctx.measureText(unit).width;
    let sx=x+bw/2-(nw+uw+4)/2;
-   ctx.fillStyle="#2b2622"; ctx.font=`500 66px Georgia,serif`; ctx.fillText(n,sx,y+82);
-   ctx.fillStyle="#9a8d80"; ctx.font=`500 28px Georgia,serif`; ctx.fillText(unit,sx+nw+4,y+82);
-   ctx.textAlign="center"; ctx.fillStyle="#6f645b"; ctx.font=`700 25px ${SANS}`; ctx.fillText(label,x+bw/2,y+124);
+   ctx.fillStyle=P.ink; ctx.font=`500 66px Georgia,serif`; ctx.fillText(n,sx,y+82);
+   ctx.fillStyle=P.muted; ctx.font=`500 28px Georgia,serif`; ctx.fillText(unit,sx+nw+4,y+82);
+   ctx.textAlign="center"; ctx.fillStyle=P.sub; ctx.font=`700 25px ${SANS}`; ctx.fillText(label,x+bw/2,y+124);
  });
- ctx.textAlign="center"; ctx.fillStyle="#8b7f74"; ctx.font=`700 25px ${SANS}`;
+ ctx.textAlign="center"; ctx.fillStyle=P.sub; ctx.font=`700 25px ${SANS}`;
  ctx.fillText("あなたも地図を埋めてみて",W/2,1770);
- ctx.fillStyle="#2b2622"; ctx.font=`500 24px Georgia,serif`; ctx.fillText("oka600-arch.github.io/japan-memory-map",W/2,1812);
+ ctx.fillStyle=P.ink; ctx.font=`500 24px Georgia,serif`; ctx.fillText("oka600-arch.github.io/japan-memory-map",W/2,1812);
  return c;
 }
 function logout(){localStorage.removeItem(USER);state.user=null;render()}
