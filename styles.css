@@ -346,3 +346,68 @@ button,input,select,textarea{font-family:inherit}
 .jmm-toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translate(-50%,12px);opacity:0;z-index:9999;background:#222;color:#fff;padding:12px 18px;border-radius:999px;font-size:13px;box-shadow:0 10px 30px rgba(0,0,0,.16);transition:opacity .2s ease,transform .2s ease;pointer-events:none;white-space:nowrap}.jmm-toast.show{opacity:1;transform:translate(-50%,0)}
 .form-submit-row .primary:disabled{opacity:.45;cursor:not-allowed;transform:none}
 .preview-remove{z-index:3;cursor:pointer}
+
+/* 地図の線をやわらかく：境界は白、まだ行っていない県は薄いベージュ */
+.inline-map svg path,.inline-map svg polygon,.inline-map svg polyline{stroke:#fffdf9;stroke-width:1.4}
+.inline-map .prefecture-hit:not(.visited) path,.inline-map .prefecture-hit:not(.visited) polygon{fill:#ece5da}
+.inline-map svg line{stroke:#ddd3c4;stroke-width:1.6;stroke-dasharray:4 7;stroke-linecap:round}
+/* シェア */
+.share-action{height:38px;padding:0 15px;border:1px solid var(--line);border-radius:999px;background:#2b2622;color:#fff;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:.04em}
+.share-sheet .field textarea{font-size:16px;line-height:1.6}
+.share-bg-row{display:flex;gap:8px;margin:12px 0 14px;flex-wrap:wrap}
+.share-bg-chip{border:1px solid var(--line);border-radius:999px;padding:9px 16px;background:#fff;color:var(--ink);font-size:13px;cursor:pointer}
+.share-bg-chip.beige::before,.share-bg-chip.pastel::before{content:"";display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:7px;vertical-align:-1px;background:#e9dfd0}
+.share-bg-chip.pastel::before{background:linear-gradient(135deg,#ffd1dc,#ffe2c4,#d9d3ff)}
+.share-bg-chip.active{border-color:#2b2622;box-shadow:0 0 0 1px #2b2622 inset}
+.share-bg-chip.reset{margin-left:auto;color:var(--muted)}
+.share-preview{position:relative;width:min(300px,72%);aspect-ratio:9/16;margin:0 auto;border-radius:18px;overflow:hidden;background:#f3ede3;box-shadow:0 10px 30px rgba(60,45,30,.14)}
+.share-preview img{width:100%;height:100%;display:block}
+.share-preview .preview-loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px}
+.share-hint{text-align:center;margin-top:8px}
+
+/* 称号とバッジ */
+.rank-card{margin:4px 0 26px;padding:20px 20px 16px;border-radius:26px;background:var(--paper,#fffdf9);border:1px solid var(--line);box-shadow:0 8px 26px rgba(60,45,30,.06)}
+.rank-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}
+.rank-kicker{display:block;font-size:9px;letter-spacing:.25em;color:#9a9289}
+.rank-name{display:block;font-family:Georgia,"Hiragino Mincho ProN","Yu Mincho",serif;font-size:26px;font-weight:500;margin-top:6px}
+.rank-badge-count b{font-family:Georgia,serif;font-size:26px;font-weight:500}.rank-badge-count small{font-size:11px;color:var(--muted);margin-left:4px}
+.rank-bar{height:8px;border-radius:8px;background:#efe8dd;margin:14px 0 8px;overflow:hidden}
+.rank-bar i{display:block;height:100%;border-radius:8px;background:linear-gradient(90deg,#e9b872,#e8706b)}
+.rank-next{margin:0;font-size:12px;color:var(--muted)}.rank-next b{color:var(--ink);font-size:15px;margin:0 2px}
+.badge-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+.region-badge{display:flex;flex-direction:column;align-items:center;gap:6px}
+.badge-medal{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;font-size:12px;color:#a59a8d;background:#f3eee7;border:1.5px dashed #d9cfc1;font-family:Georgia,serif}
+.region-badge small{font-size:11px;color:var(--muted);white-space:nowrap}
+.region-badge.complete .badge-medal{border:0;color:#fff;font-size:22px;background:radial-gradient(circle at 30% 25%,#ffe9a8,#e9b14a 60%,#c98a2b);box-shadow:0 6px 14px rgba(201,138,43,.35)}
+.region-badge.complete small{color:var(--ink);font-weight:600}
+.rank-hint{margin:14px 0 0;font-size:11px;color:#a39a90;text-align:center}
+.celebrate-backdrop{align-items:center!important}
+.celebrate{width:min(360px,92%);background:var(--paper,#fffdf9);border-radius:28px;padding:28px 22px 22px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.2);animation:celebrate-pop .45s cubic-bezier(.2,1.4,.4,1)}
+.celebrate-item+.celebrate-item{margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}
+.celebrate-icon{width:76px;height:76px;margin:0 auto 10px;border-radius:50%;display:grid;place-items:center;font-size:34px;color:#fff;background:radial-gradient(circle at 30% 25%,#ffe9a8,#e9b14a 60%,#c98a2b);box-shadow:0 8px 20px rgba(201,138,43,.35)}
+.celebrate h2{font-size:22px;margin:0 0 6px}.celebrate p{margin:0 0 4px;color:var(--muted);font-size:13px}
+.celebrate .cta-row{margin-top:20px;gap:8px}
+@keyframes celebrate-pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+
+/* ルーレット・3大観光地 */
+.roulette-open{display:block;width:100%;margin-top:14px;padding:14px;border:0;border-radius:999px;background:linear-gradient(90deg,#e9b872,#e8706b);color:#fff;font-size:14px;font-weight:700;letter-spacing:.04em;cursor:pointer;box-shadow:0 8px 20px rgba(232,112,107,.28)}
+.roulette-backdrop{align-items:center!important}
+.roulette{width:min(380px,92%);max-height:90vh;overflow:auto;background:var(--paper,#fffdf9);border-radius:28px;padding:26px 22px 20px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.roulette h2{font-size:22px;margin:6px 0 16px}
+.roulette-window{height:96px;border-radius:22px;background:#2b2622;display:grid;place-items:center;overflow:hidden;box-shadow:inset 0 0 0 4px #ffe066}
+.roulette-name{font-family:Georgia,"Hiragino Mincho ProN","Yu Mincho",serif;font-size:32px;color:#fff}
+.roulette-name.tick{animation:roulette-tick .12s ease-out}
+.roulette-name.landed{color:#ffe066;font-size:38px;animation:celebrate-pop .45s cubic-bezier(.2,1.4,.4,1)}
+@keyframes roulette-tick{from{transform:translateY(-40%);opacity:.3}to{transform:none;opacity:1}}
+.roulette .cta-row{margin-top:16px;gap:8px}
+.roulette-note{margin-top:10px;color:var(--muted)}
+.spots{margin:16px 0 4px;padding:16px 16px 10px;border-radius:20px;background:#f6f1ea;text-align:left}
+.spots-head span{display:block;font-size:9px;letter-spacing:.25em;color:#9a9289}
+.spots-head strong{display:block;font-size:16px;margin-top:4px}
+.spots ol{list-style:none;margin:10px 0 0;padding:0}
+.spots li{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid #ebe3d8;font-size:14px}
+.spots li:first-child{border-top:0}
+.spots li b{width:26px;height:26px;flex:none;border-radius:50%;display:grid;place-items:center;font-family:Georgia,serif;font-size:13px;color:#fff;background:#c9a46b}
+.spots li:nth-child(1) b{background:linear-gradient(135deg,#f3cf73,#d39a2c)}
+.spots li:nth-child(2) b{background:linear-gradient(135deg,#d9d9d9,#a5a5a5)}
+.spots li:nth-child(3) b{background:linear-gradient(135deg,#e4b48a,#b47a48)}

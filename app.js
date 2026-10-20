@@ -8,15 +8,74 @@ const EMBEDDED_BASE_MAP="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlb
 const NAMES={"01":"北海道","02":"青森県","03":"岩手県","04":"宮城県","05":"秋田県","06":"山形県","07":"福島県","08":"茨城県","09":"栃木県","10":"群馬県","11":"埼玉県","12":"千葉県","13":"東京都","14":"神奈川県","15":"新潟県","16":"富山県","17":"石川県","18":"福井県","19":"山梨県","20":"長野県","21":"岐阜県","22":"静岡県","23":"愛知県","24":"三重県","25":"滋賀県","26":"京都府","27":"大阪府","28":"兵庫県","29":"奈良県","30":"和歌山県","31":"鳥取県","32":"島根県","33":"岡山県","34":"広島県","35":"山口県","36":"徳島県","37":"香川県","38":"愛媛県","39":"高知県","40":"福岡県","41":"佐賀県","42":"長崎県","43":"熊本県","44":"大分県","45":"宮崎県","46":"鹿児島県","47":"沖縄県"};
 const CATS=["旅行","グルメ","観光","自然","イベント","日常","その他"];
 const STORE="jmm_memories_v2", USER="jmm_user_v1";
-let state={view:"map", memories:loadMemories(), user:JSON.parse(localStorage.getItem(USER)||"null"), geo:null, prefectureGroups:null, selectedPref:null, selectedMemory:null, editing:null, mapSelection:JSON.parse(localStorage.getItem("jmm_map_selection_v1")||"{}")};
+const DEMO_USER={name:"思い出を残す人",email:"demo@example.com"};
+// ログイン画面を挟まず、最初から地図（デモ）画面ではじめる。
+let state={view:"map", memories:[], user:JSON.parse(localStorage.getItem(USER)||"null")||{...DEMO_USER}, geo:null, prefectureGroups:null, selectedPref:null, selectedMemory:null, editing:null, mapSelection:JSON.parse(localStorage.getItem("jmm_map_selection_v1")||"{}")};
 
-function loadMemories(){try{return JSON.parse(localStorage.getItem(STORE)||"[]")}catch{return[]}}
-function saveMemories(){localStorage.setItem(STORE,JSON.stringify(state.memories))}
+// 写真はIndexedDBに保存する。localStorage（約5MB）より大幅に多くの写真を1か所に残せる。
+const IDB_NAME="jmm_db", IDB_STORE="memories";
+let idbPromise=null, useIDB=true, savedSigs=new Map(), saveChain=Promise.resolve();
+function openDB(){
+ if(!idbPromise) idbPromise=new Promise((res,rej)=>{
+   if(!window.indexedDB) return rej(new Error("NO_INDEXEDDB"));
+   const req=indexedDB.open(IDB_NAME,1);
+   req.onupgradeneeded=()=>{ if(!req.result.objectStoreNames.contains(IDB_STORE)) req.result.createObjectStore(IDB_STORE,{keyPath:"id"}); };
+   req.onsuccess=()=>res(req.result); req.onerror=()=>rej(req.error);
+ });
+ return idbPromise;
+}
+function memorySig(m){
+ const p=x=>x?`${x.length}:${x.slice(-40)}`:"";
+ const {originalPhoto,maskedPhoto,...rest}=m;
+ return JSON.stringify(rest)+"|"+p(originalPhoto)+"|"+p(maskedPhoto);
+}
+function loadMemoriesLocal(){try{return JSON.parse(localStorage.getItem(STORE)||"[]")}catch{return[]}}
+async function loadMemories(){
+ try{
+   const db=await openDB();
+   let list=await new Promise((res,rej)=>{const r=db.transaction(IDB_STORE).objectStore(IDB_STORE).getAll();r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error)});
+   const legacy=loadMemoriesLocal();
+   if(!list.length && legacy.length){
+     // 以前localStorageに保存していた写真をIndexedDBへ移す。
+     state.memories=legacy; await writeMemoriesIDB();
+     localStorage.removeItem(STORE);
+     return legacy;
+   }
+   list.sort((a,b)=>(a.order??0)-(b.order??0));
+   list.forEach((m,i)=>{delete m.order;savedSigs.set(m.id,memorySig(m)+"#"+i)});
+   return list;
+ }catch(err){
+   console.warn("IDB_UNAVAILABLE_FALLBACK_LOCALSTORAGE",err);
+   useIDB=false; return loadMemoriesLocal();
+ }
+}
+async function writeMemoriesIDB(){
+ const db=await openDB();
+ const ids=new Set(state.memories.map(m=>m.id));
+ const nextSigs=new Map();
+ await new Promise((res,rej)=>{
+   const tx=db.transaction(IDB_STORE,"readwrite"), os=tx.objectStore(IDB_STORE);
+   state.memories.forEach((m,i)=>{
+     const sig=memorySig(m)+"#"+i; nextSigs.set(m.id,sig);
+     if(savedSigs.get(m.id)!==sig) os.put({...m,order:i});
+   });
+   savedSigs.forEach((_,id)=>{ if(!ids.has(id)) os.delete(id); });
+   tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); tx.onabort=()=>rej(tx.error||new Error("IDB_ABORT"));
+ });
+ savedSigs=nextSigs;
+}
+function saveMemories(){
+ if(!useIDB){localStorage.setItem(STORE,JSON.stringify(state.memories));return Promise.resolve()}
+ const run=saveChain.then(writeMemoriesIDB);
+ saveChain=run.catch(()=>{});
+ run.catch(err=>{console.error("MEMORY_SAVE_FAIL",err);showToast("写真を保存できませんでした。端末の空き容量をご確認ください。")});
+ return run;
+}
 function saveMapSelection(){localStorage.setItem("jmm_map_selection_v1",JSON.stringify(state.mapSelection))}
 function esc(s=""){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function visited(){return new Set(state.memories.map(m=>m.prefectureId))}
 function setView(v){state.view=v;state.selectedPref=null;state.selectedMemory=null;render()}
-function resetDemo(){localStorage.removeItem(STORE);localStorage.removeItem("jmm_map_selection_v1");state.memories=[];state.mapSelection={};render()}
+function resetDemo(){localStorage.removeItem(STORE);localStorage.removeItem("jmm_map_selection_v1");state.memories=[];state.mapSelection={};saveMemories();render()}
 
 async function refreshStoredMaskedPhotos(){
  // 地図用の県型画像は代表写真だけ保持し、アルバム写真には重い県型PNGを持たせない。
@@ -37,13 +96,16 @@ async function refreshStoredMaskedPhotos(){
      console.warn("PHOTO_RECLIP_FAIL",m.id,err);
    }
  }
- if(changed){ try{ saveMemories(); }catch(err){ console.warn("PHOTO_COMPACT_SAVE_FAIL",err); } }
+ if(changed){ try{ await saveMemories(); }catch(err){ console.warn("PHOTO_COMPACT_SAVE_FAIL",err); } }
 }
 function dataUrlToBlob(dataUrl){
  return fetch(dataUrl).then(r=>r.blob());
 }
 async function boot(){
  state.geo=EMBEDDED_GEOMETRY;
+ state.memories=await loadMemories();
+ // ブラウザが空き容量不足時に写真を消さないよう、永続保存を依頼する。
+ try{ navigator.storage?.persist?.(); }catch{}
  state.prefectureGroups={};
  try{
    const doc=new DOMParser().parseFromString(EMBEDDED_SVG,"image/svg+xml");
@@ -104,13 +166,13 @@ function authView(){
  </section></main>`
 }
 function login(e){e.preventDefault();state.user={name:document.getElementById("loginEmail").value.split("@")[0]||"思い出を残す人",email:document.getElementById("loginEmail").value};localStorage.setItem(USER,JSON.stringify(state.user));render()}
-function demoLogin(){state.user={name:"思い出を残す人",email:"demo@example.com"};localStorage.setItem(USER,JSON.stringify(state.user));render()}
+function demoLogin(){state.user={...DEMO_USER};localStorage.setItem(USER,JSON.stringify(state.user));render()}
 function mapView(){
  const v=visited(), count=v.size, pct=Math.round(count/47*100), recent=state.memories.slice(0,4);
  return `<main class="insta-app">
    <header class="insta-top">
      <div class="brand-lockup"><div class="brand-mini">JAPAN</div><div class="brand-title">MEMORY MAP</div></div>
-     <div class="top-actions"><button class="circle-action" onclick="showAbout()" aria-label="使い方">?</button></div>
+     <div class="top-actions"><button class="share-action" onclick="openShareSheet()" aria-label="ストーリー用の画像を作る">↗ シェア</button><button class="circle-action" onclick="showAbout()" aria-label="使い方">?</button></div>
    </header>
 
    <section class="hero-copy">
@@ -147,6 +209,8 @@ function mapView(){
      <div class="stat-line"></div>
      <div><span>COLLECTION</span><strong>${pct}<small>%</small></strong></div>
    </section>
+
+   ${rankSection()}
 
    <section class="recent-section">
      <div class="section-title"><div><span>RECENT MEMORIES</span><h2>最近の思い出</h2></div><button onclick="setView('memories')">すべて見る</button></div>
@@ -263,9 +327,10 @@ function openExtraPhotos(pref){
 
 function interactiveMapSvg(){
   let svg=EMBEDDED_SVG;
+  const v=visited();
   svg=svg.replace(/<g([^>]*data-code="(\d+)"[^>]*)>/g,(m,attrs,rawId)=>{
     const id=String(rawId).padStart(2,"0");
-    let a=attrs.replace(/class="([^"]*)"/,(_,c)=>`class="${c} prefecture-hit"`);
+    let a=attrs.replace(/class="([^"]*)"/,(_,c)=>`class="${c} prefecture-hit${v.has(id)?" visited":""}"`);
     return `<g${a} role="button" tabindex="0" aria-label="${NAMES[id]}" onclick="selectPref('${id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectPref('${id}')}">`;
   });
   svg=svg.replace(/fill="#EEEEEE"/gi,'fill="transparent"');
@@ -273,7 +338,7 @@ function interactiveMapSvg(){
   return svg;
 }
 
-function buildPhotoLayers(){
+function mapPhotoSources(){
  const byPref={};
  for(const m of state.memories){
    if(m.maskedPhoto) (byPref[m.prefectureId] ||= []).push(m);
@@ -281,8 +346,11 @@ function buildPhotoLayers(){
  return Object.entries(byPref).map(([pref, memories])=>{
    const selectedId=state.mapSelection?.[pref];
    const selected=memories.find(m=>m.id===selectedId) || memories[0];
-   return selected ? `<img class="photo-layer-map" src="${selected.maskedPhoto}" alt="" aria-hidden="true">` : "";
- }).join("");
+   return selected?.maskedPhoto;
+ }).filter(Boolean);
+}
+function buildPhotoLayers(){
+ return mapPhotoSources().map(src=>`<img class="photo-layer-map" src="${src}" alt="" aria-hidden="true">`).join("");
 }
 
 function selectPref(id){state.selectedPref=String(id).padStart(2,'0');render()}
@@ -301,6 +369,7 @@ function openPrefSheet(id){
      </div>
    </div>
    <div class="cta-row pref-sheet-actions"><button class="primary" onclick="addForPref('${pid}')">＋ ${NAMES[pid]}の思い出を追加</button></div>
+   ${spotsHtml(pid)}
    ${ms.length?`<div class="section-head pref-section-head"><h2>思い出</h2><span>${ms.length}件</span></div><div class="memory-grid pref-memory-grid">${ms.map(memoryCard).join("")}</div>`:`<div class="empty pref-empty"><p>この県の最初の思い出を登録しましょう。</p></div>`}`;
  const el=document.createElement("div");
  el.className="modal-backdrop pref-modal";
@@ -352,7 +421,7 @@ function profileView(){
 }
 function settingsView(){
  return `<header class="topbar"><div><div class="kicker">SETTINGS</div><h2>設定</h2></div><button class="icon-btn" onclick="setView('profile')">←</button></header>
- <section class="form-card"><h2 style="font-size:20px">データ</h2><p class="lead">このMVPデモでは、思い出はこのブラウザに保存されています。</p><div class="cta-row" style="justify-content:flex-start"><button class="secondary" onclick="resetDemo()">思い出をすべて削除</button></div><div class="notice">本番版では、認証・DB・画像ストレージをサーバー側へ接続します。</div></section>`
+ <section class="form-card"><h2 style="font-size:20px">データ</h2><p class="lead">このMVPデモでは、思い出はこのブラウザ（IndexedDB）に保存されています。写真は枚数を気にせずたくさん保存できます。</p><div class="cta-row" style="justify-content:flex-start"><button class="secondary" onclick="resetDemo()">思い出をすべて削除</button></div><div class="notice">本番版では、認証・DB・画像ストレージをサーバー側へ接続します。</div></section>`
 }
 let prefillPref="";
 let addEntryMode="gallery";
@@ -461,7 +530,7 @@ async function makeMasked(file,pref){
 
 function fileToDataURL(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file)})}
 function loadImage(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src})}
-async function compressPhotoForStorage(dataUrl,maxSide=720,quality=.45){
+async function compressPhotoForStorage(dataUrl,maxSide=1280,quality=.72){
  const img=await loadImage(dataUrl);
  const scale=Math.min(1,maxSide/Math.max(img.width,img.height));
  const w=Math.max(1,Math.round(img.width*scale)),h=Math.max(1,Math.round(img.height*scale));
@@ -480,12 +549,12 @@ async function compactMemoriesForStorage(maxSide=720,quality=.45){
  }
 }
 async function persistMemoriesSafely(){
- try{ saveMemories(); return true; }catch(firstErr){
+ try{ await saveMemories(); return true; }catch(firstErr){
    // まず現在データを軽量化してから再試行。既存機能は維持する。
-   await compactMemoriesForStorage(600,.38);
-   try{ saveMemories(); return true; }catch(secondErr){
-     await compactMemoriesForStorage(480,.30);
-     try{ saveMemories(); return true; }catch(finalErr){
+   await compactMemoriesForStorage(960,.6);
+   try{ await saveMemories(); return true; }catch(secondErr){
+     await compactMemoriesForStorage(600,.4);
+     try{ await saveMemories(); return true; }catch(finalErr){
        console.error("MEMORY_STORAGE_QUOTA",finalErr);
        return false;
      }
@@ -508,10 +577,11 @@ async function createMemory(e){
    if(!base.visitDate||!base.title||!base.category) throw new Error("REQUIRED_FIELD_MISSING");
    const batchId=crypto.randomUUID();
    // 複数写真は保存容量を抑え、地図用の県型PNGは代表写真1枚だけ保持する。
-   const storedOriginals=await Promise.all(currentPreviews.map(preview=>compressPhotoForStorage(preview.original,720,.45)));
+   const storedOriginals=await Promise.all(currentPreviews.map(preview=>compressPhotoForStorage(preview.original,1280,.72)));
    const created=currentPreviews.map((preview,i)=>({id:crypto.randomUUID(),...base,originalPhoto:storedOriginals[i],maskedPhoto:i===0?preview.masked:null,createdAt:new Date().toISOString(),batchId,albumKey:`pref-${pref}`,photoRole:i===0?'map':'album',batchIndex:i+1}));
    createdCount=created.length;
    const firstCreatedId=created[0].id;
+   const before=progressSnapshot();
    state.memories.unshift(...created.slice().reverse());
    state.mapSelection[pref]=firstCreatedId;
    persisted=await persistMemoriesSafely();
@@ -519,7 +589,7 @@ async function createMemory(e){
    try{ saveMapSelection(); }catch(mapErr){ console.warn("MAP_SELECTION_SAVE_FAIL",mapErr); }
    selectedFiles=[];currentPreviews=[];currentPreview=null;prefillPref="";
    try{ setView("map"); }catch(renderErr){ console.warn("MAP_RENDER_AFTER_SAVE_FAIL",renderErr); }
-   setTimeout(()=>showToast(`${createdCount}枚の写真を保存しました`),50);
+   setTimeout(()=>{ if(!celebrateProgress(before)) showToast(`${createdCount}枚の写真を保存しました`); },50);
  }catch(err){
    console.error("MEMORY_CREATE_FAIL",err);
    if(btn){btn.disabled=false;btn.textContent=btn.dataset.originalText||"県型写真を作って保存";}
@@ -562,7 +632,7 @@ async function showPhotoOnMap(id){
      const file=new File([blob],"memory.jpg",{type:blob.type||"image/jpeg"});
      const result=await makeMasked(file,m.prefectureId);
      m.maskedPhoto=result.masked;
-     saveMemories();
+     await saveMemories();
    }
    if(!m.maskedPhoto) throw new Error("MAP_PHOTO_GENERATE_FAIL");
    state.mapSelection[m.prefectureId]=m.id;
@@ -610,10 +680,10 @@ async function saveEdit(){
  Object.assign(m,next);
  if(oldPref!==newPref && state.mapSelection?.[oldPref]===m.id) delete state.mapSelection[oldPref];
  state.mapSelection[newPref]=m.id;
- saveMemories();saveMapSelection();state.editing=null;setView("memories")
+ try{await saveMemories()}catch{return}saveMapSelection();state.editing=null;setView("memories")
 }
 
-function deleteMemory(id){
+async function deleteMemory(id){
  if(!confirm("この思い出を削除しますか？"))return;
  const target=state.memories.find(m=>m.id===id);
  if(!target)return;
@@ -625,12 +695,215 @@ function deleteMemory(id){
    else delete state.mapSelection[target.prefectureId];
  }
  try{
-   saveMemories(); saveMapSelection(); state.selectedMemory=null; render(); showToast("写真を削除しました");
+   await saveMemories(); saveMapSelection(); state.selectedMemory=null; render(); showToast("写真を削除しました");
  }catch(err){
    console.error("MEMORY_DELETE_FAIL",err);
    state.memories=prev;
    alert("写真の削除を保存できませんでした。もう一度お試しください。");
  }
+}
+// ===== 称号とバッジ =====
+const RANKS=[[0,"旅のはじまり"],[1,"旅の見習い"],[5,"旅人"],[12,"旅の達人"],[24,"旅の名人"],[36,"日本マスター候補"],[47,"日本マスター"]];
+const REGIONS=[["hokkaido","北海道",["01"]],["tohoku","東北",["02","03","04","05","06","07"]],["kanto","関東",["08","09","10","11","12","13","14"]],["chubu","中部",["15","16","17","18","19","20","21","22","23"]],["kinki","近畿",["24","25","26","27","28","29","30"]],["chugoku","中国",["31","32","33","34","35"]],["shikoku","四国",["36","37","38","39"]],["kyushu","九州・沖縄",["40","41","42","43","44","45","46","47"]]];
+function rankInfo(count=visited().size){
+ let i=0; while(i+1<RANKS.length && count>=RANKS[i+1][0]) i++;
+ const next=RANKS[i+1];
+ return {level:i, name:RANKS[i][1], next:next?{name:next[1],need:next[0]-count,progress:(count-RANKS[i][0])/(next[0]-RANKS[i][0])}:null};
+}
+function regionProgress(v=visited()){
+ return REGIONS.map(([key,name,ids])=>({key,name,total:ids.length,done:ids.filter(id=>v.has(id)).length,complete:ids.every(id=>v.has(id))}));
+}
+function progressSnapshot(){return {rank:rankInfo().level,badges:regionProgress().filter(r=>r.complete).map(r=>r.key)}}
+function rankSection(){
+ const r=rankInfo(), regions=regionProgress(), got=regions.filter(x=>x.complete).length;
+ return `<section class="rank-card">
+   <div class="rank-head"><div><span class="rank-kicker">TRAVEL RANK · Lv.${r.level}</span><strong class="rank-name">${r.name}</strong></div><div class="rank-badge-count"><b>${got}</b><small>/ ${REGIONS.length} バッジ</small></div></div>
+   ${r.next?`<div class="rank-bar"><i style="width:${Math.round(r.next.progress*100)}%"></i></div><p class="rank-next">あと<b>${r.next.need}</b>県で「${r.next.name}」</p>`:`<p class="rank-next">47都道府県をすべて彩りました！</p>`}
+   <div class="badge-grid">${regions.map(x=>`<div class="region-badge ${x.complete?"complete":""} ${x.key}"><span class="badge-medal">${x.complete?"★":`${x.done}/${x.total}`}</span><small>${x.name}</small></div>`).join("")}</div>
+   <p class="rank-hint">地方の県をぜんぶ埋めると、その地方の制覇バッジがもらえます。</p>
+   <button class="roulette-open" onclick="openRoulette()">🎲 次の旅ルーレットを回す</button>
+ </section>`;
+}
+function celebrateProgress(before){
+ const after=progressSnapshot();
+ const items=[];
+ if(after.rank>before.rank) items.push({icon:"👑",title:"ランクアップ！",text:`称号「${RANKS[after.rank][1]}」になりました`});
+ after.badges.filter(k=>!before.badges.includes(k)).forEach(k=>{const reg=REGIONS.find(x=>x[0]===k);items.push({icon:"★",title:`${reg[1]}制覇！`,text:`${reg[1]}のバッジを手に入れました`})});
+ if(!items.length) return false;
+ const el=document.createElement("div");el.className="modal-backdrop celebrate-backdrop";el.onclick=e=>{if(e.target===el)el.remove()};
+ el.innerHTML=`<section class="celebrate">${items.map(it=>`<div class="celebrate-item"><div class="celebrate-icon">${it.icon}</div><h2>${it.title}</h2><p>${it.text}</p></div>`).join("")}
+  <div class="cta-row" style="justify-content:center"><button class="primary" onclick="this.closest('.modal-backdrop').remove();openShareSheet()">ストーリーで自慢する</button><button class="secondary" onclick="this.closest('.modal-backdrop').remove()">閉じる</button></div></section>`;
+ document.body.appendChild(el);
+ return true;
+}
+
+// ===== 次の旅ルーレット・県の3大観光地 =====
+const TOP_SPOTS={"01":["函館山の夜景","小樽運河","富良野・美瑛"],"02":["奥入瀬渓流","十和田湖","弘前城"],"03":["中尊寺","浄土ヶ浜","龍泉洞"],"04":["松島","仙台城跡","秋保温泉"],"05":["角館の武家屋敷","田沢湖","乳頭温泉郷"],"06":["山寺（立石寺）","銀山温泉","蔵王"],"07":["鶴ヶ城","大内宿","猪苗代湖"],"08":["国営ひたち海浜公園","袋田の滝","偕楽園"],"09":["日光東照宮","華厳の滝","鬼怒川温泉"],"10":["草津温泉","伊香保温泉","富岡製糸場"],"11":["川越の蔵造りの町並み","長瀞","秩父"],"12":["東京ディズニーリゾート","成田山新勝寺","鋸山"],"13":["浅草・浅草寺","東京スカイツリー","渋谷スクランブル交差点"],"14":["鎌倉","箱根","横浜中華街"],"15":["佐渡島","苗場","月岡温泉"],"16":["立山黒部アルペンルート","五箇山合掌造り集落","雨晴海岸"],"17":["兼六園","ひがし茶屋街","能登半島"],"18":["東尋坊","永平寺","恐竜博物館"],"19":["富士五湖","昇仙峡","忍野八海"],"20":["上高地","善光寺","軽井沢"],"21":["白川郷","飛騨高山の古い町並み","下呂温泉"],"22":["富士山","伊豆半島","熱海温泉"],"23":["名古屋城","熱田神宮","レゴランド・ジャパン"],"24":["伊勢神宮","鳥羽水族館","ナガシマリゾート"],"25":["琵琶湖","彦根城","比叡山延暦寺"],"26":["清水寺","伏見稲荷大社","嵐山"],"27":["ユニバーサル・スタジオ・ジャパン","大阪城","道頓堀"],"28":["姫路城","神戸・北野異人館","有馬温泉"],"29":["奈良公園","東大寺","法隆寺"],"30":["高野山","熊野古道","白浜"],"31":["鳥取砂丘","大山","水木しげるロード"],"32":["出雲大社","松江城","石見銀山"],"33":["倉敷美観地区","後楽園","岡山城"],"34":["厳島神社（宮島）","原爆ドーム","尾道"],"35":["秋吉台・秋芳洞","錦帯橋","角島大橋"],"36":["鳴門の渦潮","祖谷のかずら橋","大歩危・小歩危"],"37":["金刀比羅宮","小豆島","栗林公園"],"38":["道後温泉","松山城","しまなみ海道"],"39":["桂浜","四万十川","高知城"],"40":["太宰府天満宮","中洲の屋台","門司港レトロ"],"41":["吉野ヶ里遺跡","嬉野温泉","有田"],"42":["ハウステンボス","グラバー園","軍艦島"],"43":["阿蘇山","熊本城","黒川温泉"],"44":["別府温泉","湯布院","臼杵石仏"],"45":["高千穂峡","青島","日南海岸"],"46":["屋久島","桜島","指宿温泉"],"47":["美ら海水族館","首里城","古宇利島"]};
+function spotsHtml(pid){
+ const spots=TOP_SPOTS[pid]||[];
+ if(!spots.length) return "";
+ return `<div class="spots"><div class="spots-head"><span>TOP 3 SPOTS</span><strong>${NAMES[pid]}の3大観光地</strong></div><ol>${spots.map((sp,i)=>`<li><b>${i+1}</b><span>${esc(sp)}</span></li>`).join("")}</ol></div>`;
+}
+let rouletteBusy=false;
+function openRoulette(){
+ const el=document.createElement("div");el.className="modal-backdrop roulette-backdrop";el.onclick=e=>{if(e.target===el&&!rouletteBusy)el.remove()};
+ el.innerHTML=`<section class="roulette"><div class="kicker">NEXT TRIP ROULETTE</div><h2>次の旅ルーレット</h2>
+  <div class="roulette-window"><div id="rouletteName" class="roulette-name">？</div></div>
+  <div id="rouletteResult"></div>
+  <div class="cta-row" style="justify-content:center"><button id="rouletteSpin" class="primary" onclick="spinRoulette()">ルーレットを回す</button><button class="secondary" onclick="if(!rouletteBusy)this.closest('.modal-backdrop').remove()">閉じる</button></div>
+  <p class="small roulette-note">まだ行っていない県から選びます。</p></section>`;
+ document.body.appendChild(el);
+}
+async function spinRoulette(){
+ if(rouletteBusy) return;
+ const v=visited(); let pool=Object.keys(NAMES).filter(id=>!v.has(id));
+ const note=document.querySelector(".roulette-note");
+ if(!pool.length){pool=Object.keys(NAMES); if(note) note.textContent="47都道府県制覇ずみ！2回目の旅先を選びます。";}
+ rouletteBusy=true;
+ const name=document.getElementById("rouletteName"), btn=document.getElementById("rouletteSpin"), result=document.getElementById("rouletteResult");
+ btn.disabled=true; result.innerHTML=""; name.classList.remove("landed");
+ const pick=pool[Math.floor(Math.random()*pool.length)];
+ const steps=22;
+ for(let i=0;i<steps;i++){
+   name.textContent=NAMES[i===steps-1?pick:pool[Math.floor(Math.random()*pool.length)]];
+   name.classList.remove("tick"); void name.offsetWidth; name.classList.add("tick");
+   await new Promise(r=>setTimeout(r,40+Math.pow(i/steps,3)*260));
+ }
+ name.classList.add("landed");
+ result.innerHTML=`${spotsHtml(pick)}<div class="cta-row" style="justify-content:center;margin-top:12px"><button class="secondary" onclick="this.closest('.modal-backdrop').remove();addForPref('${pick}')">＋ 行ったら写真を追加</button></div>`;
+ btn.disabled=false; btn.textContent="もう一回"; rouletteBusy=false;
+}
+
+// ===== ストーリー用シェア画像 =====
+const SHARE_KEY="jmm_share_v1";
+const DEFAULT_THEME="あなたの思い出で、\n日本を彩る。";
+const SHARE_BG={beige:{label:"ベージュ"},pastel:{label:"パステル"}};
+let shareOpts=(()=>{try{return {theme:DEFAULT_THEME,bg:"beige",...JSON.parse(localStorage.getItem(SHARE_KEY)||"{}")}}catch{return {theme:DEFAULT_THEME,bg:"beige"}}})();
+let shareTimer=null, shareBlob=null;
+function openShareSheet(){
+ const el=document.createElement("div");el.className="modal-backdrop";el.onclick=e=>{if(e.target===el)el.remove()};
+ el.innerHTML=`<section class="sheet share-sheet"><div class="sheet-head"><div><div class="kicker">SHARE TO STORY</div><h2>ストーリー用の画像</h2></div><button class="close" onclick="this.closest('.modal-backdrop').remove()">×</button></div>
+  <div class="field"><label>テーマ（好きな言葉に変えられます）</label><textarea id="shareTheme" rows="2" maxlength="40" oninput="updateShareOpts()">${esc(shareOpts.theme)}</textarea></div>
+  <div class="share-bg-row">${Object.entries(SHARE_BG).map(([k,v])=>`<button type="button" class="share-bg-chip ${k} ${shareOpts.bg===k?"active":""}" onclick="updateShareOpts('${k}')">${v.label}</button>`).join("")}<button type="button" class="share-bg-chip reset" onclick="document.getElementById('shareTheme').value=DEFAULT_THEME;updateShareOpts()">元に戻す</button></div>
+  <div class="share-preview"><img id="sharePreview" alt="シェア画像のプレビュー"><div id="shareLoading" class="preview-loading">作成中…</div></div>
+  <div class="cta-row"><button id="shareSaveBtn" class="primary" onclick="saveShareImage()" disabled>画像を保存・シェア</button></div>
+  <p class="small share-hint">保存した画像をインスタのストーリーに載せてください。</p></section>`;
+ document.body.appendChild(el);
+ refreshSharePreview();
+}
+function updateShareOpts(bg){
+ if(bg){shareOpts.bg=bg;document.querySelectorAll(".share-bg-chip").forEach(b=>b.classList.toggle("active",b.classList.contains(bg)))}
+ const t=document.getElementById("shareTheme"); if(t) shareOpts.theme=t.value;
+ try{localStorage.setItem(SHARE_KEY,JSON.stringify(shareOpts))}catch{}
+ clearTimeout(shareTimer); shareTimer=setTimeout(refreshSharePreview,250);
+}
+async function refreshSharePreview(){
+ const btn=document.getElementById("shareSaveBtn"), img=document.getElementById("sharePreview"), loading=document.getElementById("shareLoading");
+ if(btn) btn.disabled=true; if(loading) loading.style.display="";
+ try{
+   const canvas=await drawShareImage(shareOpts);
+   shareBlob=await new Promise(r=>canvas.toBlob(r,"image/png"));
+   if(img){ if(img.dataset.url) URL.revokeObjectURL(img.dataset.url); img.dataset.url=URL.createObjectURL(shareBlob); img.src=img.dataset.url; }
+   if(btn) btn.disabled=false;
+ }catch(err){console.error("SHARE_IMAGE_FAIL",err);showToast("画像を作れませんでした");}
+ if(loading) loading.style.display="none";
+}
+async function saveShareImage(){
+ if(!shareBlob) return;
+ const file=new File([shareBlob],"japan-memory-map.png",{type:"image/png"});
+ if(navigator.canShare?.({files:[file]})){
+   try{ await navigator.share({files:[file]}); return; }catch(err){ if(err?.name==="AbortError") return; }
+ }
+ const a=document.createElement("a"); a.href=URL.createObjectURL(shareBlob); a.download="japan-memory-map.png"; document.body.appendChild(a); a.click(); a.remove();
+ setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+ showToast("画像を保存しました");
+}
+function shareMapSvgUrl(){
+ const v=visited();
+ let svg=EMBEDDED_SVG.replace("<svg ",'<svg width="1000" height="1000" ');
+ svg=svg.replace(/<g([^>]*data-code="(\d+)"[^>]*)>/g,(m,attrs,rawId)=>{
+   const id=String(rawId).padStart(2,"0");
+   return `<g${attrs} fill="${v.has(id)?"transparent":"#ece5da"}">`;
+ });
+ svg=svg.replace(/fill="#(EEEEEE|F[0-9A-F]{5})"/gi,'').replace(/stroke="#000000"/g,'stroke="#fffdf9"').replace(/stroke-width="1\.0"/g,'stroke-width="1.6"');
+ svg=svg.replace(/<line /g,'<line stroke="#ddd3c4" stroke-width="2" stroke-dasharray="4 8" stroke-linecap="round" ');
+ return "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+}
+function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath()}
+function wrapTheme(ctx,text,maxW){
+ const out=[];
+ for(const para of String(text||"").split("\n")){
+   let line="";
+   for(const ch of para){ if(ctx.measureText(line+ch).width>maxW && line){out.push(line);line=ch}else line+=ch; }
+   out.push(line);
+ }
+ return out.filter((l,i,a)=>l||a.length===1);
+}
+async function drawShareImage(opts){
+ const W=1080,H=1920, c=document.createElement("canvas"); c.width=W; c.height=H; const ctx=c.getContext("2d");
+ const SERIF='"Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP",serif', SANS='"Hiragino Sans","Yu Gothic","Noto Sans JP",sans-serif';
+ const v=visited(), count=v.size, pct=Math.round(count/47*100);
+ // 背景
+ ctx.fillStyle="#f3ede3"; ctx.fillRect(0,0,W,H);
+ if(opts.bg==="pastel"){
+   ctx.fillStyle="#fbf3ee"; ctx.fillRect(0,0,W,H);
+   [[100,190,760,"#ffd1dc"],[1020,560,820,"#ffe2c4"],[320,1820,900,"#d9d3ff"],[1030,1820,720,"#c9f0e6"]].forEach(([x,y,r,col])=>{
+     const g=ctx.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,col); g.addColorStop(1,col+"00"); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+   });
+ }
+ // ブランド
+ ctx.fillStyle="#9b8f82"; ctx.textAlign="center"; ctx.textBaseline="alphabetic";
+ ctx.font=`500 26px Georgia,serif`; ctx.letterSpacing="10px"; ctx.fillText("JAPAN MEMORY MAP",W/2+5,250); ctx.letterSpacing="0px";
+ // テーマ（文字数に合わせて大きさを調整）
+ const theme=(opts.theme||"").trim()||DEFAULT_THEME;
+ let size=86, lines;
+ for(;size>=44;size-=4){ ctx.font=`500 ${size}px ${SERIF}`; lines=wrapTheme(ctx,theme,900); if(lines.length*size*1.35<=250) break; }
+ ctx.fillStyle="#2b2622";
+ const lh=size*1.35, top=300+(250-lines.length*lh)/2;
+ lines.forEach((l,i)=>ctx.fillText(l,W/2,top+lh*(i+0.8)));
+ // 地図カード
+ const cx=70,cy=580,cs=940;
+ ctx.save(); ctx.shadowColor="rgba(120,90,70,.18)"; ctx.shadowBlur=70; ctx.shadowOffsetY=26; ctx.fillStyle="#fffdf9"; roundRect(ctx,cx,cy,cs,cs,52); ctx.fill(); ctx.restore();
+ const mx=cx+20,my=cy+20,ms=cs-40;
+ for(const src of mapPhotoSources()){ try{ ctx.save(); ctx.shadowColor="rgba(80,50,30,.22)"; ctx.shadowBlur=8; ctx.shadowOffsetY=3; ctx.drawImage(await loadImage(src),mx,my,ms,ms); ctx.restore(); }catch{} }
+ try{ ctx.drawImage(await loadImage(shareMapSvgUrl()),mx,my,ms,ms); }catch(err){ console.warn("SHARE_SVG_FAIL",err); }
+ // ステッカー
+ ctx.save(); ctx.translate(cx+200,cy+150); ctx.rotate(-6*Math.PI/180);
+ const sticker=`👑 ${rankInfo(count).name}`;
+ ctx.font=`800 36px ${SANS}`; const sw=ctx.measureText(sticker).width+56;
+ ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=20; ctx.shadowOffsetY=8; ctx.fillStyle="#ffe066"; roundRect(ctx,-sw/2,-38,sw,76,20); ctx.fill();
+ ctx.shadowColor="transparent"; ctx.fillStyle="#2b2622"; ctx.textBaseline="middle"; ctx.fillText(sticker,0,2); ctx.restore();
+ // 制覇バッジ（地図の右下の海の部分）
+ const badges=regionProgress(v).filter(r=>r.complete);
+ if(badges.length){
+   ctx.textAlign="right"; ctx.textBaseline="middle"; ctx.font=`700 24px ${SANS}`;
+   let by=cy+cs-60;
+   ctx.fillStyle="#9b8f82"; ctx.font=`600 20px Georgia,serif`; ctx.fillText(`BADGES ${badges.length}/${REGIONS.length}`,cx+cs-48,by-((badges.length-1)*58)-50);
+   ctx.font=`700 24px ${SANS}`;
+   badges.slice().reverse().forEach(b=>{
+     const label=`★ ${b.name}制覇`, w=ctx.measureText(label).width+36;
+     ctx.fillStyle="#2b2622"; roundRect(ctx,cx+cs-48-w,by-24,w,48,24); ctx.fill();
+     ctx.fillStyle="#ffe066"; ctx.fillText(label,cx+cs-48-18,by+1);
+     by-=58;
+   });
+ }
+ // 数字
+ const stats=[[`${count}`,"/47","行った県"],[`${state.memories.length}`,"","思い出の写真"],[`${pct}`,"%","日本制覇率"]];
+ const bw=(cs-36)/3;
+ stats.forEach(([n,unit,label],i)=>{
+   const x=cx+i*(bw+18), y=1550;
+   ctx.save(); ctx.shadowColor="rgba(120,90,70,.08)"; ctx.shadowBlur=30; ctx.shadowOffsetY=10; ctx.fillStyle="rgba(255,253,249,.88)"; roundRect(ctx,x,y,bw,150,34); ctx.fill(); ctx.restore();
+   ctx.textBaseline="alphabetic"; ctx.textAlign="left";
+   ctx.font=`500 66px Georgia,serif`; const nw=ctx.measureText(n).width; ctx.font=`500 28px Georgia,serif`; const uw=ctx.measureText(unit).width;
+   let sx=x+bw/2-(nw+uw+4)/2;
+   ctx.fillStyle="#2b2622"; ctx.font=`500 66px Georgia,serif`; ctx.fillText(n,sx,y+82);
+   ctx.fillStyle="#9a8d80"; ctx.font=`500 28px Georgia,serif`; ctx.fillText(unit,sx+nw+4,y+82);
+   ctx.textAlign="center"; ctx.fillStyle="#6f645b"; ctx.font=`700 25px ${SANS}`; ctx.fillText(label,x+bw/2,y+124);
+ });
+ ctx.textAlign="center"; ctx.fillStyle="#8b7f74"; ctx.font=`700 25px ${SANS}`;
+ ctx.fillText("あなたも地図を埋めてみて",W/2,1770);
+ ctx.fillStyle="#2b2622"; ctx.font=`500 24px Georgia,serif`; ctx.fillText("oka600-arch.github.io/japan-memory-map",W/2,1812);
+ return c;
 }
 function logout(){localStorage.removeItem(USER);state.user=null;render()}
 function showAbout(){
